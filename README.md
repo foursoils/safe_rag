@@ -47,13 +47,13 @@ bash scripts/build_lightrag.sh            # resume if workspace exists
 bash scripts/build_lightrag.sh --rebuild  # wipe and rebuild
 ```
 
-The script starts two vLLM processes (chat + embed). Logs go to `logs/lightrag/` (`log_dir` in the YAML):
+The script starts two vLLM processes (chat + embed). Logs go to `logs/lightrag/<dataset>/` (`log_dir` in the YAML plus the dataset name):
 
-- `logs/lightrag/vllm-chat.log`
-- `logs/lightrag/vllm-embed.log`
-- `logs/lightrag/build.log`
+- `logs/lightrag/<dataset>/vllm-chat.log`
+- `logs/lightrag/<dataset>/vllm-embed.log`
+- `logs/lightrag/<dataset>/build.log`
 
-The terminal shows stage banners and the insert progress bar. Output: `data/lightrag/medical/`.
+The terminal shows stage banners and the insert progress bar. Output: `data/lightrag/<dataset>/`.
 
 GPU assignment is in `configs/lightrag/build.yaml` (`vllm.devices` and `embedding.devices`). Tensor parallel size follows the device list: one card `[0]`; two-way TP `[0, 1]`; three-way TP `[0, 1, 2]`. The 31B chat model and 4B embed model currently share `[0, 1, 2, 3]`.
 

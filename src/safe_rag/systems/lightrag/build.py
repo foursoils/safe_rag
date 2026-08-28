@@ -98,6 +98,24 @@ def load_corpus_data(dataset_name):
     except json.JSONDecodeError:
         pass
 
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            json_obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(json_obj, dict):
+            continue
+        if "context" in json_obj:
+            contexts.append(json_obj["context"])
+        elif "text" in json_obj:
+            contexts.append(json_obj["text"])
+    if contexts:
+        log(f"Loaded {len(contexts)} contexts from JSONL format")
+        return contexts
+
     try:
         parts = content.split("}{")
         for i, part in enumerate(parts):

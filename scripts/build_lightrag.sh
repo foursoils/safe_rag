@@ -25,10 +25,10 @@ Usage: bash scripts/build_lightrag.sh [options]
   --config    Path to configs/lightrag/build.yaml
   -h, --help  Show this help.
 
-Logs (see log_dir in the YAML, default logs/lightrag/; overwritten each run):
-  logs/lightrag/vllm-chat.log
-  logs/lightrag/vllm-embed.log
-  logs/lightrag/build.log
+Logs (log_dir/<dataset>/ in the YAML, default logs/lightrag/<dataset>/; overwritten each run):
+  logs/lightrag/<dataset>/vllm-chat.log
+  logs/lightrag/<dataset>/vllm-embed.log
+  logs/lightrag/<dataset>/build.log
 EOF
 }
 

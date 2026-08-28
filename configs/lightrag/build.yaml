@@ -1,7 +1,8 @@
 # LightRAG knowledge-graph build (two local vLLM processes).
 
-dataset: medical
+dataset: agriculture
 
+# Parent folder; actual files go to logs/lightrag/<dataset>/
 log_dir: logs/lightrag
 
 llm:

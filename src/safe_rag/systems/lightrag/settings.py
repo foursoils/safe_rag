@@ -51,7 +51,11 @@ class LightRAGSettings:
 
     @property
     def log_dir(self) -> Path:
-        return _resolve(self.raw.get("log_dir") or "logs/lightrag")
+        """Build/vLLM logs live at logs/lightrag/<dataset>/, matching data/lightrag/<dataset>/."""
+        base = _resolve(self.raw.get("log_dir") or "logs/lightrag")
+        if base.name == self.dataset:
+            return base
+        return base / self.dataset
 
     @property
     def chat_log_path(self) -> Path:
