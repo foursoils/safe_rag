@@ -1,0 +1,9 @@
+attack: agea
+defense: none
+system: graphrag
+dataset: medical
+turns: 50
+agea:
+  query_method: local
+  enable_graph_filter: true
+  llm_config: configs/agea/llm.yaml

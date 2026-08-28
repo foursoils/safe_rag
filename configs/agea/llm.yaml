@@ -1,0 +1,6 @@
+base_url: https://api.gpt.ge/v1
+api_key: sk-b54SZXNWK0Km1AVPE571915bA9564f37867711FbFf5e2827
+query_generator_model: gpt-4o-mini
+graph_filter_model: gpt-4o-mini
+max_retries: 10
+timeout: 120

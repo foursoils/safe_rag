@@ -1,0 +1,5 @@
+# Corpora, indexes, and experiment outputs via Git LFS. Markdown stays as normal git text.
+data/** filter=lfs diff=lfs merge=lfs -text
+data/**/*.md text -filter -diff -merge
+results/** filter=lfs diff=lfs merge=lfs -text
+results/**/*.md text -filter -diff -merge

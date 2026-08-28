@@ -1,0 +1,35 @@
+.env
+*.env
+**/.env
+*.pem
+*.key
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+.venv/
+venv/
+
+# macOS copy artifacts
+.DS_Store
+**/.DS_Store
+._*
+**/._*
+
+# Indexes, corpora, and local logs
+logs/
+
+# Local model weights; keep the directory placeholders.
+models/llm/*
+!models/llm/.gitkeep
+models/embedding/*
+!models/embedding/.gitkeep
+
+# Original AGEA index artifacts if present in the snapshot
+third_party/agea/LightRAG/graphs/
+third_party/agea/graphrag/**/output/
+third_party/agea/graphrag/**/input/

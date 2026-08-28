@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safe-rag"
+version = "0.1.0"
+description = "Attack–defense evaluation matrix for GraphRAG systems"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx",
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "openai",
+    "tqdm",
+    "httpx",
+    "lightrag-hku",
+    "vllm",
+]
+
+[project.optional-dependencies]
+# Microsoft GraphRAG indexer/query runtime. Heavy; only for the graphrag victim.
+graphrag = ["graphrag"]
+
+[project.scripts]
+safe-rag = "safe_rag.eval.runner:main"
+
+[project.entry-points."vllm.general_plugins"]
+safe_rag_gemma4 = "safe_rag.systems.lightrag.vllm_compat:patch_gemma4_head_dim"
+
+[tool.setuptools.packages.find]
+where = ["src"]

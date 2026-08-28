@@ -1,0 +1,56 @@
+# LightRAG knowledge-graph build (two local vLLM processes).
+
+dataset: medical
+
+log_dir: logs/lightrag
+
+llm:
+  model_path: models/llm/gemma-4-31B-it
+  served_model_name: gemma-4-31B-it
+  api_key: EMPTY
+  enable_thinking: true
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+vllm:
+  host: 127.0.0.1
+  port: 8000
+  uds: /tmp/safe-rag-vllm.sock
+  devices: [0, 1, 2, 3]
+  # Fraction of TOTAL VRAM, not leftover. 0.80 + embed 0.15 fails the free-memory check.
+  gpu_memory_utilization: 0.77
+  max_model_len: 20480
+  max_num_seqs: 32
+  dtype: auto
+  extra_args:
+    - --trust-remote-code
+    - --reasoning-parser
+    - gemma4
+    - --limit-mm-per-prompt
+    - '{"image": 0, "audio": 0}'
+  startup_timeout_s: 1300
+
+embedding:
+  model_path: models/embedding/Qwen3-Embedding-4B
+  model: Qwen3-Embedding-4B
+  dim: 2560
+  api_key: EMPTY
+  uds: /tmp/safe-rag-embed.sock
+  devices: [0, 1, 2, 3]
+  gpu_memory_utilization: 0.13
+  max_model_len: 8192
+  max_num_seqs: 32
+  extra_args: []
+
+chunking:
+  chunk_token_size: 1200
+  chunk_overlap_token_size: 100
+  chars_per_token: 4
+
+insert:
+  max_async: 8
+  batch_size: 16
