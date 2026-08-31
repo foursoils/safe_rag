@@ -21,10 +21,10 @@ vllm:
   host: 127.0.0.1
   port: 8000
   uds: /tmp/safe-rag-vllm.sock
-  devices: [0, 1]
+  devices: [0, 1, 2, 3]
   # Fraction of TOTAL VRAM, not leftover. 0.80 + embed 0.15 fails the free-memory check.
-  gpu_memory_utilization: 0.80
-  max_model_len: 10240
+  gpu_memory_utilization: 0.77
+  max_model_len: 20480
   max_num_seqs: 32
   dtype: auto
   extra_args:
@@ -41,8 +41,8 @@ embedding:
   dim: 2560
   api_key: EMPTY
   uds: /tmp/safe-rag-embed.sock
-  devices: [0, 1]
-  gpu_memory_utilization: 0.10
+  devices: [0, 1, 2, 3]
+  gpu_memory_utilization: 0.13
   max_model_len: 8192
   max_num_seqs: 32
   extra_args: []
@@ -53,5 +53,5 @@ chunking:
   chars_per_token: 4
 
 insert:
-  max_async: 32
-  batch_size: 64
+  max_async: 16
+  batch_size: 32
