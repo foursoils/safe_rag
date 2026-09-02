@@ -55,11 +55,12 @@ def run_experiment(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     attack = get_attack(spec.attack)
-    defense = get_defense(spec.defense)
     if system is None:
         system_kwargs = dict(spec.extra.get("system_kwargs") or {})
         system_kwargs.setdefault("dataset", spec.dataset)
         system = get_system(spec.system, **system_kwargs)
+    defense_kwargs = dict(spec.extra.get("defense_kwargs") or {})
+    defense = get_defense(spec.defense, **defense_kwargs)
 
     result = attack.run(
         system=system,

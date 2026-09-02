@@ -1,0 +1,11 @@
+attack: agea
+defense: isolation
+defense_kwargs:
+  radius: 1
+system: lightrag
+dataset: medical
+turns: 50
+agea:
+  query_method: hybrid
+  enable_graph_filter: true
+  llm_config: configs/agea/llm.yaml

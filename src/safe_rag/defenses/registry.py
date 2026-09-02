@@ -4,8 +4,10 @@ from typing import Any
 
 from safe_rag.defenses.base import Defense
 from safe_rag.defenses.none.passthrough import NoneDefense
+from safe_rag.defenses.retrieve.graph_isolation import GraphIsolationDefense
 
 _DEFENSES: dict[str, type] = {
+    "isolation": GraphIsolationDefense,
     "none": NoneDefense,
 }
 

@@ -67,3 +67,28 @@ python -m safe_rag.eval.runner --config configs/experiments/agea_none_lightrag_m
 Outputs go to `results/agea_none_<system>_<dataset>/`.
 
 To compare a new defense, add `src/safe_rag/defenses/<layer>/...`, register it, copy an experiment YAML, change `defense:`, and rerun. The runner does not need to change.
+
+## Session graph isolation
+
+The LightRAG experiment can isolate graph regions cumulatively across one AGEA
+run:
+
+```bash
+python -m safe_rag.eval.runner --config configs/experiments/agea_isolation_lightrag_medical.yaml
+```
+
+`isolation` keeps state only for one `AgeaAttack.run` invocation. Its
+default radius is one hop; `defense_kwargs.radius` accepts `1` or `2`. After a
+turn, released entities and relations become forbidden together with the
+configured-radius neighborhood in the original graph. If retrieval later
+matches an already released entity, the defense may reuse that entity's cached
+description, but it does not release newly retrieved relations through the
+forbidden entity.
+
+This initial implementation enforces isolation at the generation boundary:
+LightRAG performs structured retrieval first, then only filtered entities,
+relationships, and source chunks are rendered into the answer context. It does
+not prevent LightRAG's storage layer from traversing forbidden graph data.
+LightRAG must expose structured `aquery_llm` results with entity, relationship,
+and chunk lists; unsupported or unstructured results fail closed instead of
+falling back to raw context.

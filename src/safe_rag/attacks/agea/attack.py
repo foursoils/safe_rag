@@ -240,6 +240,7 @@ class AgeaAttack:
                     "seeds_used": seeds,
                     "seeds_with_rounds": seeds_with_rounds,
                     "blocked": result.blocked,
+                    "defense_stats": result.extra.get("defense", {}),
                     "stderr": clean_stderr(result.stderr),
                     "timestamp": time.time(),
                 }
