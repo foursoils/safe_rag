@@ -1,5 +1,5 @@
 base_url: https://api.gpt.ge/v1
-api_key: sk-7bEohiWiqkzWryNB8e53DdF96c5c476cB708039c4d896805
+api_key: sk-gcRbKsfe1HzVMdklD3664cFa5e2545EdB86c6fB2C9C3EeBf
 query_generator_model: gpt-4o-mini
 graph_filter_model: gpt-4o-mini
 max_retries: 10

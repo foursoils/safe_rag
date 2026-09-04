@@ -161,6 +161,8 @@ async def llm_model_func(
         if input_tokens is None:
             raise
         retry_tokens = max(1, settings.max_model_len - input_tokens - 8)
+        if settings.max_tokens is not None:
+            retry_tokens = min(retry_tokens, settings.max_tokens)
         chat_completion = await _complete(retry_tokens)
     return _message_text(chat_completion.choices[0].message)
 

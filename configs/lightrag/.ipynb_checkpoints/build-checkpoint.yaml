@@ -23,8 +23,8 @@ vllm:
   uds: /tmp/safe-rag-vllm.sock
   devices: [0, 1, 2, 3]
   # Fraction of TOTAL VRAM, not leftover. 0.80 + embed 0.15 fails the free-memory check.
-  gpu_memory_utilization: 0.77
-  max_model_len: 20480
+  gpu_memory_utilization: 0.82
+  max_model_len: 30720
   max_num_seqs: 32
   dtype: auto
   extra_args:

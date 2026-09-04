@@ -14,6 +14,10 @@ build/
 .venv/
 venv/
 
+# Jupyter autosaves
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
 # macOS copy artifacts
 .DS_Store
 **/.DS_Store
