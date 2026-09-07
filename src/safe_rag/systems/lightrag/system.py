@@ -1,9 +1,51 @@
+import asyncio
+import threading
 from pathlib import Path
 from typing import Any, Optional
 from dataclasses import replace
 
 from safe_rag.paths import DATA_ROOT
 from safe_rag.systems.base import OriginalGraph, QueryResult, StructuredRetrieval
+
+_LOOP: asyncio.AbstractEventLoop | None = None
+_LOOP_THREAD: threading.Thread | None = None
+_LOOP_GUARD = threading.Lock()
+
+
+def _lightrag_loop() -> asyncio.AbstractEventLoop:
+    """One process-wide loop. LightRAG's asyncio.Lock objects bind to it."""
+    global _LOOP, _LOOP_THREAD
+    with _LOOP_GUARD:
+        if _LOOP is not None and _LOOP.is_running():
+            return _LOOP
+        ready = threading.Event()
+
+        def _run() -> None:
+            global _LOOP
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            _LOOP = loop
+            ready.set()
+            loop.run_forever()
+
+        _LOOP_THREAD = threading.Thread(target=_run, name="lightrag-loop", daemon=True)
+        _LOOP_THREAD.start()
+        if not ready.wait(timeout=10):
+            raise RuntimeError("LightRAG event loop failed to start")
+        if _LOOP is None:
+            raise RuntimeError("LightRAG event loop was not created")
+        return _LOOP
+
+
+def run_on_lightrag_loop(coro):
+    loop = _lightrag_loop()
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop:
+        raise RuntimeError("cannot block the LightRAG event loop from inside itself")
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 class LightRAGSystem:
@@ -21,6 +63,12 @@ class LightRAGSystem:
         self.dataset = dataset
         self.root_dir = Path(root_dir) if root_dir is not None else DATA_ROOT / "lightrag"
         self.response_type = response_type
+        from safe_rag.systems.lightrag.settings import get_lightrag_settings
+
+        replicas = max(1, get_lightrag_settings().embedding_replicas)
+        self._retrieve_slots = threading.Semaphore(replicas)
+        self._rag = None
+        self._rag_lock: asyncio.Lock | None = None
 
     def working_dir(self, dataset: Optional[str] = None) -> Path:
         name = dataset or self.dataset
@@ -28,48 +76,53 @@ class LightRAGSystem:
 
     @staticmethod
     def _run_async(coro):
-        import asyncio
+        return run_on_lightrag_loop(coro)
 
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result()
-
-    def query(self, text: str, method: str = "hybrid") -> QueryResult:
-        from lightrag import LightRAG, QueryParam
-        from lightrag.kg.shared_storage import initialize_pipeline_status
+    def _new_rag(self):
+        from lightrag import LightRAG
         from lightrag.utils import EmbeddingFunc
 
         from safe_rag.systems.lightrag.clients import (
             embedding_dim,
             embedding_func,
             llm_model_func,
-            load_lightrag_config,
         )
-
-        load_lightrag_config()
 
         working_dir = self.working_dir()
         if not working_dir.exists():
             raise FileNotFoundError(f"LightRAG workspace not found: {working_dir}")
+        return LightRAG(
+            working_dir=str(working_dir),
+            llm_model_func=llm_model_func,
+            embedding_func=EmbeddingFunc(
+                embedding_dim=embedding_dim(),
+                max_token_size=8192,
+                func=embedding_func,
+            ),
+        )
+
+    async def _rag_instance(self):
+        from lightrag.kg.shared_storage import initialize_pipeline_status
+
+        if self._rag_lock is None:
+            self._rag_lock = asyncio.Lock()
+        async with self._rag_lock:
+            if self._rag is None:
+                rag = self._new_rag()
+                await rag.initialize_storages()
+                await initialize_pipeline_status()
+                self._rag = rag
+            return self._rag
+
+    def query(self, text: str, method: str = "hybrid") -> QueryResult:
+        from lightrag import QueryParam
+
+        from safe_rag.systems.lightrag.settings import get_lightrag_settings
+
+        get_lightrag_settings()
 
         async def run_query() -> tuple[str, str, str]:
-            rag = LightRAG(
-                working_dir=str(working_dir),
-                llm_model_func=llm_model_func,
-                embedding_func=EmbeddingFunc(
-                    embedding_dim=embedding_dim(),
-                    max_token_size=8192,
-                    func=embedding_func,
-                ),
-            )
-            await rag.initialize_storages()
-            await initialize_pipeline_status()
+            rag = await self._rag_instance()
             query_param = QueryParam(
                 mode=method,
                 top_k=10,
@@ -100,40 +153,18 @@ class LightRAGSystem:
                 return "", str(exc), ""
 
         response, error, context = self._run_async(run_query())
-
         return QueryResult(response=response, retrieved_context=context, stderr=error)
 
     def retrieve(self, text: str, method: str = "hybrid") -> StructuredRetrieval:
-        from lightrag import LightRAG, QueryParam
-        from lightrag.kg.shared_storage import initialize_pipeline_status
-        from lightrag.utils import EmbeddingFunc
+        from lightrag import QueryParam
 
-        from safe_rag.systems.lightrag.clients import (
-            embedding_dim,
-            embedding_func,
-            llm_model_func,
-            load_lightrag_config,
-        )
         from safe_rag.systems.lightrag.context import parse_lightrag_result
+        from safe_rag.systems.lightrag.settings import get_lightrag_settings
 
-        load_lightrag_config()
-
-        working_dir = self.working_dir()
-        if not working_dir.exists():
-            raise FileNotFoundError(f"LightRAG workspace not found: {working_dir}")
+        get_lightrag_settings()
 
         async def run_retrieve():
-            rag = LightRAG(
-                working_dir=str(working_dir),
-                llm_model_func=llm_model_func,
-                embedding_func=EmbeddingFunc(
-                    embedding_dim=embedding_dim(),
-                    max_token_size=8192,
-                    func=embedding_func,
-                ),
-            )
-            await rag.initialize_storages()
-            await initialize_pipeline_status()
+            rag = await self._rag_instance()
             aquery_llm = getattr(rag, "aquery_llm", None)
             if not callable(aquery_llm):
                 raise RuntimeError(
@@ -154,7 +185,8 @@ class LightRAGSystem:
             )
             return parse_lightrag_result(result)
 
-        return self._run_async(run_retrieve())
+        with self._retrieve_slots:
+            return self._run_async(run_retrieve())
 
     def generate(
         self,

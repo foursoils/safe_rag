@@ -1,0 +1,18 @@
+attack: utility
+defense: isolation
+defense_kwargs:
+  radius: 1
+system: lightrag
+dataset: medical
+turns: 200
+utility:
+  questions: data/qa/medical_questions.json
+  protocols: [p1]
+  session_size: 8
+  session_workers: 4
+  question_types:
+    - Fact Retrieval
+    - Complex Reasoning
+  query_method: hybrid
+  seed: 42
+  dedupe: true

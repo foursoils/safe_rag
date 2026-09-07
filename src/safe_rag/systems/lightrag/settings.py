@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -71,11 +72,11 @@ class LightRAGSettings:
 
     @property
     def model_path(self) -> Path:
-        return _resolve(self.raw.get("llm", {}).get("model_path") or "models/llm/gemma-4-31B-it")
+        return _resolve(self.raw.get("llm", {}).get("model_path") or "models/llm/Qwen3.5-9B")
 
     @property
     def served_model_name(self) -> str:
-        return str(self.raw.get("llm", {}).get("served_model_name") or "gemma-4-31B-it")
+        return str(self.raw.get("llm", {}).get("served_model_name") or "Qwen3.5-9B")
 
     @property
     def llm_api_key(self) -> str:
@@ -113,6 +114,8 @@ class LightRAGSettings:
 
     @property
     def chat_display_url(self) -> str:
+        if self.chat_replicate:
+            return ", ".join(self.chat_replica_display_url(index) for index in range(self.chat_replica_count))
         if self.vllm_uds:
             return f"unix:{self.vllm_uds}"
         return f"http://{self.vllm_host}:{self.vllm_port}/v1"
@@ -126,7 +129,50 @@ class LightRAGSettings:
         return parse_cuda_devices(self.raw.get("vllm", {}).get("devices"), default=[0])
 
     @property
+    def chat_replicate(self) -> bool:
+        """One vLLM chat process per device instead of tensor parallel."""
+        return bool(self.raw.get("vllm", {}).get("replicate", False))
+
+    @property
+    def chat_replica_count(self) -> int:
+        if self.chat_replicate:
+            return max(len(self.chat_devices), 1)
+        return 1
+
+    def chat_replica_devices(self, replica: int = 0) -> list[int]:
+        if not self.chat_replicate:
+            return self.chat_devices
+        if replica < 0 or replica >= len(self.chat_devices):
+            raise ValueError(f"Chat replica {replica} is outside 0..{len(self.chat_devices) - 1}")
+        return [self.chat_devices[replica]]
+
+    def chat_replica_uds(self, replica: int = 0) -> Optional[str]:
+        if not self.vllm_uds:
+            return None
+        if not self.chat_replicate:
+            return self.vllm_uds
+        path = Path(self.vllm_uds)
+        return str(path.with_name(f"{path.stem}-{replica}{path.suffix}"))
+
+    def chat_replica_port(self, replica: int = 0) -> int:
+        return self.vllm_port + (replica if self.chat_replicate else 0)
+
+    def chat_replica_base_url(self, replica: int = 0) -> str:
+        if self.chat_replica_uds(replica):
+            return "http://localhost/v1"
+        probe_host = "127.0.0.1" if self.vllm_host in {"0.0.0.0", "::"} else self.vllm_host
+        return f"http://{probe_host}:{self.chat_replica_port(replica)}/v1"
+
+    def chat_replica_display_url(self, replica: int = 0) -> str:
+        uds = self.chat_replica_uds(replica)
+        if uds:
+            return f"unix:{uds}"
+        return f"http://{self.vllm_host}:{self.chat_replica_port(replica)}/v1"
+
+    @property
     def chat_tensor_parallel_size(self) -> int:
+        if self.chat_replicate:
+            return 1
         return max(len(self.chat_devices), 1)
 
     @property
@@ -171,6 +217,27 @@ class LightRAGSettings:
         if self.embedding_uds:
             return f"unix:{self.embedding_uds}"
         return self.embedding_base_url
+
+    @property
+    def embedding_backend(self) -> str:
+        value = str(self.raw.get("embedding", {}).get("backend") or "vllm").strip().lower()
+        if value in {"cpu", "local", "transformers"}:
+            return "cpu"
+        return "vllm"
+
+    @property
+    def embedding_device(self) -> str:
+        explicit = str(self.raw.get("embedding", {}).get("device") or "").strip()
+        if explicit:
+            return explicit
+        return "cpu" if self.embedding_backend == "cpu" else "cuda"
+
+    @property
+    def embedding_replicas(self) -> int:
+        block = self.raw.get("embedding", {}) or {}
+        if "replicas" in block:
+            return max(1, int(block.get("replicas") or 1))
+        return 4 if self.embedding_backend == "cpu" else 1
 
     @property
     def embedding_model_path(self) -> Path:
@@ -247,7 +314,7 @@ class LightRAGSettings:
 
     @property
     def top_k(self) -> int:
-        return int(self.raw.get("llm", {}).get("top_k", 64))
+        return int(self.raw.get("llm", {}).get("top_k", 20))
 
     @property
     def min_p(self) -> float:
@@ -255,7 +322,7 @@ class LightRAGSettings:
 
     @property
     def presence_penalty(self) -> float:
-        return float(self.raw.get("llm", {}).get("presence_penalty", 0.0))
+        return float(self.raw.get("llm", {}).get("presence_penalty", 1.5))
 
     @property
     def repetition_penalty(self) -> float:
@@ -302,7 +369,8 @@ _SETTINGS: Optional[LightRAGSettings] = None
 
 def load_lightrag_settings(path: str | Path | None = None) -> LightRAGSettings:
     global _SETTINGS
-    config_path = Path(path) if path is not None else LIGHTRAG_BUILD_CONFIG
+    env_path = os.environ.get("SAFE_RAG_LIGHTRAG_CONFIG")
+    config_path = Path(path) if path is not None else Path(env_path) if env_path else LIGHTRAG_BUILD_CONFIG
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     _SETTINGS = LightRAGSettings(raw=raw, path=config_path)
     return _SETTINGS

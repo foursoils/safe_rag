@@ -109,13 +109,16 @@ def patch_gemma4_head_dim() -> None:
         return
     _PATCHED = True
 
-    import vllm.config.model as vllm_model_config
-    from vllm.model_executor.models.gemma4 import Gemma4DecoderLayer
-    from vllm.model_executor.models.utils import extract_layer_index
-    from vllm.transformers_utils import config as vllm_hf_config
-    from vllm.transformers_utils.model_arch_config_convertor import (
-        Gemma4ModelArchConfigConvertor,
-    )
+    try:
+        import vllm.config.model as vllm_model_config
+        from vllm.model_executor.models.gemma4 import Gemma4DecoderLayer
+        from vllm.model_executor.models.utils import extract_layer_index
+        from vllm.transformers_utils import config as vllm_hf_config
+        from vllm.transformers_utils.model_arch_config_convertor import (
+            Gemma4ModelArchConfigConvertor,
+        )
+    except ImportError:
+        return
 
     original_get_config = vllm_hf_config.get_config
 

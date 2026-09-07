@@ -223,7 +223,7 @@ def main():
             f"Chat vLLM is not reachable at {settings.chat_display_url}. "
             "Start it with: bash scripts/build_lightrag.sh"
         )
-    if not is_ready(settings, "embed"):
+    if settings.embedding_backend != "cpu" and not is_ready(settings, "embed"):
         raise RuntimeError(
             f"Embedding vLLM is not reachable at {settings.embedding_display_url}. "
             "Start it with: bash scripts/build_lightrag.sh"

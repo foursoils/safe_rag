@@ -7,6 +7,7 @@ from safe_rag.attacks.base import Attack
 
 _ATTACKS: dict[str, str] = {
     "agea": "safe_rag.attacks.agea.attack:AgeaAttack",
+    "utility": "safe_rag.attacks.utility.attack:UtilityAttack",
 }
 
 

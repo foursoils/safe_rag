@@ -8,5 +8,6 @@ Typical artifacts:
 - `query_history.json`
 - `extraction_analysis.json`
 - `run_summary.json`
+- `utility_metrics.json` (benign QA runs)
 
 Per-turn dumps live under `logs/<attack>_<defense>_<system>_<dataset>/turn_logs/`.

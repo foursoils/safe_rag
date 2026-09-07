@@ -8,7 +8,7 @@ AGEA ([Query-Efficient Agentic Graph Extraction Attacks on GraphRAG Systems](htt
 
 ```
 src/safe_rag/
-  attacks/          # Attack interface + implementations (AGEA)
+  attacks/          # Attack interface + implementations (AGEA, utility QA)
   defenses/         # Defense hooks; none/ is the baseline
     query/ retrieve/ generate/ index/   # reserved insertion points
   systems/          # Victim RAG adapters (GraphRAG, LightRAG)
@@ -16,7 +16,7 @@ src/safe_rag/
 configs/experiments/
 configs/lightrag/
 data/               # corpora and indexes (Git LFS)
-models/llm/         # local gemma-4-31B-it weights
+models/llm/         # local Qwen3.5-9B weights
 results/            # run outputs (Git LFS)
 third_party/agea/   # unmodified paper code
 ```
@@ -37,10 +37,10 @@ python -m pip install -e .
 
 LightRAG indexing is configured in `configs/lightrag/build.yaml`:
 
-- Chat / graph extraction: local vLLM, weights in `models/llm/gemma-4-31B-it/`
+- Chat / graph extraction: local vLLM, weights in `models/llm/Qwen3.5-9B/`
 - Embeddings: local vLLM, weights in `models/embedding/Qwen3-Embedding-4B/` (2560-d)
 
-Put the LLM snapshot in `models/llm/gemma-4-31B-it/` and the embedding snapshot in `models/embedding/Qwen3-Embedding-4B/`, then from WSL:
+Put the LLM snapshot in `models/llm/Qwen3.5-9B/` and the embedding snapshot in `models/embedding/Qwen3-Embedding-4B/`, then from WSL:
 
 ```bash
 bash scripts/build_lightrag.sh            # resume if workspace exists
@@ -55,7 +55,7 @@ The script starts two vLLM processes (chat + embed). Logs go to `logs/lightrag/<
 
 The terminal shows stage banners and the insert progress bar. Output: `data/lightrag/<dataset>/`.
 
-GPU assignment is in `configs/lightrag/build.yaml` (`vllm.devices` and `embedding.devices`). Tensor parallel size follows the device list: one card `[0]`; two-way TP `[0, 1]`; three-way TP `[0, 1, 2]`. The 31B chat model and 4B embed model currently share `[0, 1, 2, 3]`.
+GPU assignment is in `configs/lightrag/build.yaml` (`vllm.devices` and `embedding.devices`). Tensor parallel size follows the device list unless `vllm.replicate: true`, which starts one chat process per device. Utility QA defaults to `configs/lightrag/query_dual.yaml`: one 9B on each 5090, embeddings on CPU. Do not rebuild the index with that file.
 
 ## Run
 
@@ -92,3 +92,27 @@ not prevent LightRAG's storage layer from traversing forbidden graph data.
 LightRAG must expose structured `aquery_llm` results with entity, relationship,
 and chunk lists; unsupported or unstructured results fail closed instead of
 falling back to raw context.
+
+## Utility (benign QA)
+
+Same four-tuple, with `attack: utility`. Gold answers are the GraphRAG-Bench
+reference field `answer` in `data/qa/<dataset>_questions.json`. The default
+protocol is **P1**: 8 related questions share one isolation session; later
+turns hit the forbidden neighborhood. Independent sessions run concurrently
+(`session_workers`, default 4), each with its own defense state. Turns inside
+a session stay sequential.
+
+```bash
+bash scripts/run_utility_lightrag.sh
+bash scripts/run_utility_lightrag.sh --config configs/experiments/utility_isolation_lightrag_medical.yaml
+
+python -m safe_rag.eval.report --utility \
+  --compare results/utility_none_lightrag_medical \
+            results/utility_isolation_lightrag_medical \
+  --dest results/utility_lightrag_medical_compare.json
+```
+
+Default sample: 25 sessions of 8 Fact / Complex questions (200 total), `hybrid` retrieval, same local
+chat model as the attack experiments. Scores are lexical against the official
+gold (`rouge_l`, `token_f1`, `gold_recall`, `lexical_hit`), reported overall
+and by session turn.

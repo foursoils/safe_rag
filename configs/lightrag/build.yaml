@@ -6,34 +6,33 @@ dataset: agriculture
 log_dir: logs/lightrag
 
 llm:
-  model_path: models/llm/gemma-4-31B-it
-  served_model_name: gemma-4-31B-it
+  model_path: models/llm/Qwen3.5-9B
+  served_model_name: Qwen3.5-9B
   api_key: EMPTY
   max_tokens: 10240
   enable_thinking: true
   temperature: 1.0
   top_p: 0.95
-  top_k: 64
+  top_k: 20
   min_p: 0.0
-  presence_penalty: 0.0
+  presence_penalty: 1.5
   repetition_penalty: 1.0
 
 vllm:
   host: 127.0.0.1
   port: 8000
   uds: /tmp/safe-rag-vllm.sock
-  devices: [0, 1, 2, 3]
+  devices: [0]
   # Fraction of TOTAL VRAM, not leftover. 0.80 + embed 0.15 fails the free-memory check.
-  gpu_memory_utilization: 0.80
+  gpu_memory_utilization: 0.95
   max_model_len: 30720
   max_num_seqs: 32
   dtype: auto
   extra_args:
     - --trust-remote-code
+    - --language-model-only
     - --reasoning-parser
-    - gemma4
-    - --limit-mm-per-prompt
-    - '{"image": 0, "audio": 0}'
+    - qwen3
   startup_timeout_s: 1300
 
 embedding:
@@ -42,8 +41,8 @@ embedding:
   dim: 2560
   api_key: EMPTY
   uds: /tmp/safe-rag-embed.sock
-  devices: [0, 1, 2, 3]
-  gpu_memory_utilization: 0.13
+  devices: [1]
+  gpu_memory_utilization: 0.95
   max_model_len: 8192
   max_num_seqs: 32
   extra_args: []

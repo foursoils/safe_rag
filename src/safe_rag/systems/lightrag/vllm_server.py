@@ -16,8 +16,19 @@ from safe_rag.systems.lightrag.settings import LightRAGSettings, cuda_visible_de
 ROLES = ("chat", "embed")
 
 
-def vllm_command(settings: LightRAGSettings, role: str = "chat") -> list[str]:
+def _chat_entrypoint(settings: LightRAGSettings) -> str:
+    """Gemma 4 needs the head-dim startup patch; Qwen3.5 uses stock vLLM."""
+    extra = " ".join(settings.extra_args).lower()
+    name = f"{settings.served_model_name} {settings.model_path}".lower()
+    if "gemma4" in extra or "gemma" in name:
+        return "safe_rag.systems.lightrag.vllm_compat"
+    return "vllm.entrypoints.openai.api_server"
+
+
+def vllm_command(settings: LightRAGSettings, role: str = "chat", replica: int = 0) -> list[str]:
     if role == "embed":
+        if settings.embedding_backend == "cpu":
+            raise RuntimeError("Embedding backend is cpu; do not start an embedding vLLM")
         if not settings.embedding_looks_downloaded():
             raise FileNotFoundError(
                 f"Embedding weights not found in {settings.embedding_model_path}."
@@ -60,7 +71,7 @@ def vllm_command(settings: LightRAGSettings, role: str = "chat") -> list[str]:
     command = [
         sys.executable,
         "-m",
-        "safe_rag.systems.lightrag.vllm_compat",
+        _chat_entrypoint(settings),
         "--model",
         str(settings.model_path),
         "--served-model-name",
@@ -77,37 +88,48 @@ def vllm_command(settings: LightRAGSettings, role: str = "chat") -> list[str]:
         settings.dtype,
         *settings.extra_args,
     ]
-    if settings.vllm_uds:
-        command.extend(["--uds", settings.vllm_uds])
+    uds = settings.chat_replica_uds(replica)
+    if uds:
+        command.extend(["--uds", uds])
     else:
-        command.extend(["--host", settings.vllm_host, "--port", str(settings.vllm_port)])
+        command.extend(
+            ["--host", settings.vllm_host, "--port", str(settings.chat_replica_port(replica))]
+        )
     return command
 
 
-def _http_client(settings: LightRAGSettings, role: str) -> httpx.Client:
+def _http_client(settings: LightRAGSettings, role: str, replica: int = 0) -> httpx.Client:
     kwargs: dict = {"trust_env": False, "timeout": 5.0}
-    uds = settings.embedding_uds if role == "embed" else settings.vllm_uds
+    if role == "embed":
+        uds = settings.embedding_uds
+    else:
+        uds = settings.chat_replica_uds(replica)
     if uds:
         kwargs["transport"] = httpx.HTTPTransport(uds=uds)
     return httpx.Client(**kwargs)
 
 
-def _base_url(settings: LightRAGSettings, role: str) -> str:
+def _base_url(settings: LightRAGSettings, role: str, replica: int = 0) -> str:
     if role == "embed":
         return settings.embedding_base_url
-    return settings.chat_base_url
+    return settings.chat_replica_base_url(replica)
 
 
-def display_url(settings: LightRAGSettings, role: str) -> str:
+def display_url(settings: LightRAGSettings, role: str, replica: int = 0) -> str:
     if role == "embed":
         return settings.embedding_display_url
-    return settings.chat_display_url
+    return settings.chat_replica_display_url(replica)
 
 
-def is_ready(settings: LightRAGSettings, role: str = "chat") -> bool:
+def is_ready(settings: LightRAGSettings, role: str = "chat", replica: int | None = None) -> bool:
+    if role == "embed" and settings.embedding_backend == "cpu":
+        return settings.embedding_looks_downloaded()
+    if role == "chat" and replica is None and settings.chat_replicate:
+        return all(is_ready(settings, "chat", index) for index in range(settings.chat_replica_count))
+    replica = 0 if replica is None else replica
     try:
-        with _http_client(settings, role) as client:
-            response = client.get(f"{_base_url(settings, role)}/models")
+        with _http_client(settings, role, replica) as client:
+            response = client.get(f"{_base_url(settings, role, replica)}/models")
             return 200 <= response.status_code < 300
     except Exception:
         return False
@@ -134,6 +156,7 @@ def wait_until_ready(
     settings: LightRAGSettings,
     role: str = "chat",
     pid: int | None = None,
+    replica: int = 0,
 ) -> None:
     deadline = time.time() + settings.startup_timeout_s
     started = time.time()
@@ -151,7 +174,7 @@ def wait_until_ready(
                         f"vLLM {label} process {pid} exited before becoming ready"
                     ) from exc
             if elapsed >= next_check:
-                if is_ready(settings, role):
+                if is_ready(settings, role, replica if role == "chat" else None):
                     return
                 next_check = elapsed + 1.0
             frame = frames[int(elapsed * 10) % len(frames)]
@@ -166,8 +189,11 @@ def wait_until_ready(
         _clear_status_line()
 
 
-def prepare_socket(settings: LightRAGSettings, role: str = "chat") -> None:
-    uds = settings.embedding_uds if role == "embed" else settings.vllm_uds
+def prepare_socket(settings: LightRAGSettings, role: str = "chat", replica: int = 0) -> None:
+    if role == "embed":
+        uds = settings.embedding_uds
+    else:
+        uds = settings.chat_replica_uds(replica)
     if uds:
         sock = Path(uds)
         if sock.exists():
@@ -178,39 +204,64 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="vLLM helpers for scripts/build_lightrag.sh")
     parser.add_argument(
         "action",
-        choices=("argv", "devices", "ready", "wait", "prepare-socket", "log-dir", "log-file", "name"),
+        choices=(
+            "argv",
+            "devices",
+            "ready",
+            "wait",
+            "prepare-socket",
+            "log-dir",
+            "log-file",
+            "name",
+            "replica-count",
+            "embedding-backend",
+        ),
     )
     parser.add_argument("--role", choices=ROLES, default="chat")
+    parser.add_argument("--replica", type=int, default=0)
     parser.add_argument("--config", default=str(LIGHTRAG_BUILD_CONFIG))
     parser.add_argument("--pid", type=int, default=None)
     args = parser.parse_args(argv)
     settings = load_lightrag_settings(args.config)
 
+    if args.action == "replica-count":
+        print(settings.chat_replica_count if args.role == "chat" else 1)
+        return 0
+    if args.action == "embedding-backend":
+        print(settings.embedding_backend)
+        return 0
     if args.action == "argv":
-        for part in vllm_command(settings, args.role):
+        for part in vllm_command(settings, args.role, replica=args.replica):
             print(part)
         return 0
     if args.action == "log-dir":
         print(settings.log_dir)
         return 0
     if args.action == "log-file":
-        path = settings.embed_log_path if args.role == "embed" else settings.chat_log_path
-        print(path)
+        if args.role == "embed":
+            print(settings.embed_log_path)
+        elif settings.chat_replicate:
+            print(settings.log_dir / f"vllm-chat-{args.replica}.log")
+        else:
+            print(settings.chat_log_path)
         return 0
     if args.action == "name":
         name = settings.embedding_model if args.role == "embed" else settings.served_model_name
         print(name)
         return 0
     if args.action == "devices":
-        devices = settings.embedding_devices if args.role == "embed" else settings.chat_devices
-        print(cuda_visible_devices(devices))
+        if args.role == "embed":
+            print(cuda_visible_devices(settings.embedding_devices))
+        else:
+            print(cuda_visible_devices(settings.chat_replica_devices(args.replica)))
         return 0
     if args.action == "ready":
-        return 0 if is_ready(settings, args.role) else 1
+        replica = args.replica if args.role == "chat" else None
+        return 0 if is_ready(settings, args.role, replica) else 1
     if args.action == "prepare-socket":
-        prepare_socket(settings, args.role)
+        prepare_socket(settings, args.role, replica=args.replica)
         return 0
-    wait_until_ready(settings, args.role, pid=args.pid)
+    wait_until_ready(settings, args.role, pid=args.pid, replica=args.replica)
     return 0
 
 

@@ -2,7 +2,7 @@ attack: agea
 defense: none
 system: lightrag
 dataset: medical
-turns: 50
+turns: 500
 agea:
   query_method: hybrid
   enable_graph_filter: true
