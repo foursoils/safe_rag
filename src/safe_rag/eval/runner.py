@@ -28,6 +28,15 @@ class ExperimentSpec:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+def run_dir_name(spec: ExperimentSpec) -> str:
+    """Keep r=1 paths stable; only non-default isolation radii get a suffix."""
+    name = f"{spec.attack}_{spec.defense}_{spec.system}_{spec.dataset}"
+    radius = (spec.extra.get("defense_kwargs") or {}).get("radius")
+    if spec.defense == "isolation" and radius not in (None, 1, "1"):
+        name = f"{spec.attack}_{spec.defense}_r{radius}_{spec.system}_{spec.dataset}"
+    return name
+
+
 def load_experiment(path: str | Path) -> ExperimentSpec:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     missing = [key for key in ("attack", "defense", "system", "dataset") if key not in raw]
@@ -51,7 +60,7 @@ def run_experiment(
 ) -> AttackResult:
     spec = load_experiment(config_path)
     results_root = Path(results_root) if results_root is not None else RESULTS_ROOT
-    output_dir = results_root / f"{spec.attack}_{spec.defense}_{spec.system}_{spec.dataset}"
+    output_dir = results_root / run_dir_name(spec)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     attack = get_attack(spec.attack)

@@ -11,7 +11,7 @@ EXPERIMENT="configs/experiments/agea_none_lightrag_medical.yaml"
 LIGHTRAG_CONFIG="configs/lightrag/build.yaml"
 RESULTS_ROOT=""
 KEEP=0
-CHAT_PID=""
+CHAT_PIDS=()
 EMBED_PID=""
 
 usage() {
@@ -23,6 +23,7 @@ Usage: bash scripts/run_agea_lightrag.sh [options]
   --config           Experiment YAML
                      (default: configs/experiments/agea_none_lightrag_medical.yaml)
   --lightrag-config  LightRAG / vLLM YAML (default: configs/lightrag/build.yaml)
+                     Query-time dual 9B + CPU embed: configs/lightrag/query_dual.yaml
   --results-root     Override results directory
   -h, --help         Show this help.
 
@@ -75,29 +76,37 @@ stop_pid() {
 start_role() {
   local role="$1"
   local log="$2"
-  local pid_var="$3"
-  if "$PYTHON" -m safe_rag.systems.lightrag.vllm_server ready --role "$role" --config "$LIGHTRAG_CONFIG"; then
-    ok "$role already running"
+  local replica="${3:-0}"
+  local extra=()
+  if [[ "$role" == "chat" ]]; then
+    extra+=(--replica "$replica")
+  fi
+  if "$PYTHON" -m safe_rag.systems.lightrag.vllm_server ready --role "$role" --config "$LIGHTRAG_CONFIG" "${extra[@]}"; then
+    ok "$role replica $replica already running"
     return 0
   fi
-  "$PYTHON" -m safe_rag.systems.lightrag.vllm_server prepare-socket --role "$role" --config "$LIGHTRAG_CONFIG"
+  "$PYTHON" -m safe_rag.systems.lightrag.vllm_server prepare-socket --role "$role" --config "$LIGHTRAG_CONFIG" "${extra[@]}"
   local devices
-  devices="$("$PYTHON" -m safe_rag.systems.lightrag.vllm_server devices --role "$role" --config "$LIGHTRAG_CONFIG")"
+  devices="$("$PYTHON" -m safe_rag.systems.lightrag.vllm_server devices --role "$role" --config "$LIGHTRAG_CONFIG" "${extra[@]}")"
   local cmd=()
-  mapfile -t cmd < <("$PYTHON" -m safe_rag.systems.lightrag.vllm_server argv --role "$role" --config "$LIGHTRAG_CONFIG")
-  ok "$role GPUs: $devices"
+  mapfile -t cmd < <("$PYTHON" -m safe_rag.systems.lightrag.vllm_server argv --role "$role" --config "$LIGHTRAG_CONFIG" "${extra[@]}")
+  ok "$role replica $replica GPUs: $devices"
   ok "$role logs → $log"
   env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
     CUDA_VISIBLE_DEVICES="$devices" \
     "${cmd[@]}" >"$log" 2>&1 &
   local pid=$!
-  printf -v "$pid_var" '%s' "$pid"
-  if ! "$PYTHON" -m safe_rag.systems.lightrag.vllm_server wait --role "$role" --config "$LIGHTRAG_CONFIG" --pid "$pid"; then
-    err "$role vLLM failed to start. Last log lines:"
+  if [[ "$role" == "chat" ]]; then
+    CHAT_PIDS+=("$pid")
+  else
+    EMBED_PID="$pid"
+  fi
+  if ! "$PYTHON" -m safe_rag.systems.lightrag.vllm_server wait --role "$role" --config "$LIGHTRAG_CONFIG" --pid "$pid" "${extra[@]}"; then
+    err "$role vLLM replica $replica failed to start. Last log lines:"
     tail -n 40 "$log" >&2 || true
     return 1
   fi
-  ok "$role ready (pid $pid)"
+  ok "$role replica $replica ready (pid $pid)"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -131,18 +140,25 @@ done
 cleanup() {
   local status=$?
   if [[ "$KEEP" -eq 1 ]]; then
-    [[ -n "$CHAT_PID" ]] && ok "chat vLLM left running (pid $CHAT_PID)"
+    local pid
+    for pid in "${CHAT_PIDS[@]+"${CHAT_PIDS[@]}"}"; do
+      ok "chat vLLM left running (pid $pid)"
+    done
     [[ -n "$EMBED_PID" ]] && ok "embed vLLM left running (pid $EMBED_PID)"
   else
     stage "Stopping vLLM"
     stop_pid "$EMBED_PID" "embed vLLM"
-    stop_pid "$CHAT_PID" "chat vLLM"
+    local pid
+    for pid in "${CHAT_PIDS[@]+"${CHAT_PIDS[@]}"}"; do
+      stop_pid "$pid" "chat vLLM"
+    done
   fi
   exit "$status"
 }
 trap cleanup EXIT INT TERM
 
 export PYTHONUNBUFFERED=1
+export SAFE_RAG_LIGHTRAG_CONFIG="$LIGHTRAG_CONFIG"
 
 if [[ ! -f "$EXPERIMENT" ]]; then
   err "experiment config not found: $EXPERIMENT"
@@ -160,7 +176,10 @@ DEFENSE="$(yaml_get "$EXPERIMENT" defense)"
 TURNS="$(yaml_get "$EXPERIMENT" turns)"
 LLM_CONFIG="$(yaml_get "$EXPERIMENT" agea.llm_config)"
 LLM_CONFIG="${LLM_CONFIG:-configs/agea/llm.yaml}"
-RUN_NAME="${ATTACK}_${DEFENSE}_${SYSTEM}_${DATASET}"
+RUN_NAME="$("$PYTHON" -c "
+from safe_rag.eval.runner import load_experiment, run_dir_name
+print(run_dir_name(load_experiment('$EXPERIMENT')))
+")"
 RESULT_DIR="${RESULTS_ROOT:-results}/${RUN_NAME}"
 EXPERIMENT_LOG_DIR="logs/${RUN_NAME}"
 
@@ -213,11 +232,25 @@ mkdir -p "$EXPERIMENT_LOG_DIR"
 export LOG_DIR="$EXPERIMENT_LOG_DIR"
 ok "logs → $EXPERIMENT_LOG_DIR"
 
-stage "vLLM chat ($("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role chat --config "$CONFIG"))"
-start_role chat "$CHAT_LOG" CHAT_PID
+CHAT_NAME="$("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role chat --config "$LIGHTRAG_CONFIG")"
+CHAT_COUNT="$("$PYTHON" -m safe_rag.systems.lightrag.vllm_server replica-count --role chat --config "$LIGHTRAG_CONFIG")"
+stage "vLLM chat ($CHAT_NAME x$CHAT_COUNT)"
+for replica in $(seq 0 $((CHAT_COUNT - 1))); do
+  if [[ "$CHAT_COUNT" -eq 1 ]]; then
+    start_role chat "$CHAT_LOG" "$replica"
+  else
+    start_role chat "$EXPERIMENT_LOG_DIR/vllm-chat-${replica}.log" "$replica"
+  fi
+done
 
-stage "vLLM embed ($("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role embed --config "$CONFIG"))"
-start_role embed "$EMBED_LOG" EMBED_PID
+EMBED_BACKEND="$("$PYTHON" -m safe_rag.systems.lightrag.vllm_server embedding-backend --config "$LIGHTRAG_CONFIG")"
+if [[ "$EMBED_BACKEND" == "cpu" ]]; then
+  stage "Embedding (CPU)"
+  ok "skip embed vLLM; queries use $("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role embed --config "$LIGHTRAG_CONFIG") on CPU"
+else
+  stage "vLLM embed ($("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role embed --config "$LIGHTRAG_CONFIG"))"
+  start_role embed "$EMBED_LOG"
+fi
 
 stage "AGEA"
 ok "attack log → $ATTACK_LOG"
