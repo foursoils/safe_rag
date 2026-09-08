@@ -223,14 +223,30 @@ class GraphIsolationDefense(PassthroughDefense):
     requires_staged_query = True
 
     def __init__(self, radius: int = 1):
-        if radius not in {1, 2}:
-            raise ValueError("Graph isolation radius must be 1 or 2")
+        if radius not in {0, 1, 2}:
+            raise ValueError("Graph isolation radius must be 0, 1, or 2")
         self.radius = radius
+        self.init_kwargs = {"radius": radius}
         self.topology = nx.Graph()
         self.released_graph = nx.Graph()
         self.released_entities: dict[str, dict[str, Any]] = {}
         self.forbidden_nodes: set[str] = set()
         self._initialized = False
+
+    def _forbidden_neighborhood(self, released: set[str], radius: int) -> set[str]:
+        if radius <= 0:
+            return set()
+        forbidden = set(released)
+        topology_nodes = set(self.topology.nodes)
+        for node in released & topology_nodes:
+            forbidden.update(
+                nx.single_source_shortest_path_length(
+                    self.topology,
+                    node,
+                    cutoff=radius,
+                )
+            )
+        return forbidden
 
     def _forbidden_edge_count(self) -> int:
         return sum(
@@ -370,17 +386,7 @@ class GraphIsolationDefense(PassthroughDefense):
             self.released_graph.add_edge(source, target)
 
         released_nodes = set(self.released_graph.nodes)
-        forbidden = set(released_nodes)
-        topology_nodes = set(self.topology.nodes)
-        for node in released_nodes & topology_nodes:
-            forbidden.update(
-                nx.single_source_shortest_path_length(
-                    self.topology,
-                    node,
-                    cutoff=self.radius,
-                )
-            )
-        self.forbidden_nodes = forbidden
+        self.forbidden_nodes = self._forbidden_neighborhood(released_nodes, self.radius)
         isolation_stats = retrieval.extra.get("isolation")
         if isinstance(isolation_stats, dict):
             isolation_stats.update(

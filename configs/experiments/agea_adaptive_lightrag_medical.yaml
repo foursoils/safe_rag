@@ -1,0 +1,15 @@
+attack: agea
+defense: adaptive
+defense_kwargs:
+  window_size: 3
+  decide_after: 2
+  p_radius_1: 0.35
+  p_radius_2: 0.70
+  consecutive_extract: 2
+system: lightrag
+dataset: medical
+turns: 300
+agea:
+  query_method: hybrid
+  enable_graph_filter: true
+  llm_config: configs/agea/llm.yaml

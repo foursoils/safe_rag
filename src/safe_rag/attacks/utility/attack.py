@@ -49,11 +49,13 @@ def _drop_incomplete_session(history: list[dict[str, Any]], protocol: str, sessi
 
 
 def _clone_defense(defense):
-    kwargs: dict[str, Any] = {}
+    kwargs = getattr(defense, "init_kwargs", None)
+    if isinstance(kwargs, dict):
+        return type(defense)(**kwargs)
     radius = getattr(defense, "radius", None)
     if radius is not None:
-        kwargs["radius"] = radius
-    return type(defense)(**kwargs)
+        return type(defense)(radius=radius)
+    return type(defense)()
 
 
 def _query_turn(system, defense, text: str, method: str, turn: int) -> QueryResult:
@@ -99,6 +101,7 @@ def _score_turn(
     prediction = "" if result.blocked else (result.response or "")
     defense_extra = result.extra.get("defense") if isinstance(result.extra, dict) else {}
     isolation = defense_extra.get("isolation") if isinstance(defense_extra, dict) else None
+    detector = defense_extra.get("detector") if isinstance(defense_extra, dict) else None
     return {
         "protocol": protocol,
         "session_id": session_id,
@@ -113,6 +116,7 @@ def _score_turn(
         "block_reason": result.block_reason,
         "scores": score_answer(prediction, item.answer),
         "isolation": isolation,
+        "detector": detector,
         "defense_stats": defense_extra or {},
         "stderr": result.stderr,
         "latency_s": latency_s,

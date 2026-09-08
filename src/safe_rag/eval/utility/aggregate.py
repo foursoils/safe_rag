@@ -19,10 +19,10 @@ def _score_means(rows: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _isolation_means(rows: list[dict[str, Any]]) -> dict[str, float]:
+def _field_means(rows: list[dict[str, Any]], field: str) -> dict[str, float]:
     buckets: dict[str, list[float]] = defaultdict(list)
     for row in rows:
-        stats = row.get("isolation")
+        stats = row.get(field)
         if not isinstance(stats, dict):
             continue
         for key, value in stats.items():
@@ -32,12 +32,17 @@ def _isolation_means(rows: list[dict[str, Any]]) -> dict[str, float]:
     return {key: _mean(values) for key, values in sorted(buckets.items())}
 
 
+def _isolation_means(rows: list[dict[str, Any]]) -> dict[str, float]:
+    return _field_means(rows, "isolation")
+
+
 def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "n": len(rows),
         "blocked": sum(1 for row in rows if row.get("blocked")),
         **_score_means(rows),
         "isolation": _isolation_means(rows),
+        "detector": _field_means(rows, "detector"),
     }
 
 

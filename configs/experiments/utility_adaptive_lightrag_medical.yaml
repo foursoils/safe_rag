@@ -1,0 +1,22 @@
+attack: utility
+defense: adaptive
+defense_kwargs:
+  window_size: 3
+  decide_after: 2
+  p_radius_1: 0.35
+  p_radius_2: 0.70
+  consecutive_extract: 2
+system: lightrag
+dataset: medical
+turns: 200
+utility:
+  questions: data/qa/medical_questions.json
+  protocols: [p1]
+  session_size: 8
+  session_workers: 4
+  question_types:
+    - Fact Retrieval
+    - Complex Reasoning
+  query_method: hybrid
+  seed: 42
+  dedupe: true
