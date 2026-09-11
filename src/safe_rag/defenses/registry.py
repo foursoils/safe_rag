@@ -5,10 +5,12 @@ from typing import Any
 from safe_rag.defenses.base import Defense
 from safe_rag.defenses.none.passthrough import NoneDefense
 from safe_rag.defenses.retrieve.adaptive_isolation import AdaptiveIsolationDefense
+from safe_rag.defenses.retrieve.cusum_isolation import CusumIsolationDefense
 from safe_rag.defenses.retrieve.graph_isolation import GraphIsolationDefense
 
 _DEFENSES: dict[str, type] = {
     "adaptive": AdaptiveIsolationDefense,
+    "cusum": CusumIsolationDefense,
     "isolation": GraphIsolationDefense,
     "none": NoneDefense,
 }

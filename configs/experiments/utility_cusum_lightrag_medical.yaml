@@ -1,0 +1,25 @@
+attack: utility
+defense: cusum
+defense_kwargs:
+  decide_after: 2
+  hop: 1
+  mu0: 0.08
+  slack: 0.04
+  h_radius_2: 1.0
+  decay: 0.35
+  settle_eps: 0.05
+  settle_patience: 3
+system: lightrag
+dataset: medical
+turns: 200
+utility:
+  questions: data/qa/medical_questions.json
+  protocols: [p1]
+  session_size: 8
+  session_workers: 2
+  question_types:
+    - Fact Retrieval
+    - Complex Reasoning
+  query_method: hybrid
+  seed: 42
+  dedupe: true

@@ -1,4 +1,4 @@
-# LightRAG knowledge-graph build (two local vLLM processes).
+# LightRAG knowledge-graph build: chat vLLM on one GPU, embedding on CPU.
 
 dataset: agriculture
 
@@ -23,7 +23,6 @@ vllm:
   port: 8000
   uds: /tmp/safe-rag-vllm.sock
   devices: [0]
-  # Fraction of TOTAL VRAM, not leftover. 0.80 + embed 0.15 fails the free-memory check.
   gpu_memory_utilization: 0.95
   max_model_len: 30720
   max_num_seqs: 32
@@ -36,16 +35,14 @@ vllm:
   startup_timeout_s: 1300
 
 embedding:
+  backend: cpu
+  device: cpu
+  replicas: 1
   model_path: models/embedding/Qwen3-Embedding-4B
   model: Qwen3-Embedding-4B
   dim: 2560
   api_key: EMPTY
-  uds: /tmp/safe-rag-embed.sock
-  devices: [1]
-  gpu_memory_utilization: 0.95
   max_model_len: 8192
-  max_num_seqs: 32
-  extra_args: []
 
 chunking:
   chunk_token_size: 1200

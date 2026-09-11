@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LightRAG build: start chat + embedding vLLM, insert corpus, stop both.
+# LightRAG build: start chat vLLM (embedding is CPU unless YAML says otherwise), insert corpus, stop.
 # Run from WSL in the project venv:  bash scripts/build_lightrag.sh
 set -euo pipefail
 
@@ -21,7 +21,7 @@ Usage: bash scripts/build_lightrag.sh [options]
   (default)   Resume an existing workspace, or create one if missing.
   --rebuild   Delete data/lightrag/<dataset>/ and build from scratch.
   --resume    Keep the workspace; retry failed documents only.
-  --keep-vllm Leave both vLLM processes running after the build.
+  --keep-vllm Leave chat vLLM running after the build.
   --config    Path to configs/lightrag/build.yaml
   -h, --help  Show this help.
 
@@ -130,8 +130,14 @@ ok "logs → $LOG_DIR"
 stage "vLLM chat ($("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role chat --config "$CONFIG"))"
 start_role chat "$CHAT_LOG" CHAT_PID
 
-stage "vLLM embed ($("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role embed --config "$CONFIG"))"
-start_role embed "$EMBED_LOG" EMBED_PID
+EMBED_BACKEND="$("$PYTHON" -m safe_rag.systems.lightrag.vllm_server embedding-backend --config "$CONFIG")"
+if [[ "$EMBED_BACKEND" == "cpu" ]]; then
+  stage "Embedding (CPU)"
+  ok "skip embed vLLM; index uses $("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role embed --config "$CONFIG") on CPU"
+else
+  stage "vLLM embed ($("$PYTHON" -m safe_rag.systems.lightrag.vllm_server name --role embed --config "$CONFIG"))"
+  start_role embed "$EMBED_LOG" EMBED_PID
+fi
 
 stage "Knowledge graph"
 PY_ARGS=(-m safe_rag.systems.lightrag.build --config "$CONFIG")

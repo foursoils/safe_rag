@@ -1,0 +1,18 @@
+attack: agea
+defense: cusum
+defense_kwargs:
+  decide_after: 2
+  hop: 1
+  mu0: 0.08
+  slack: 0.04
+  h_radius_2: 1.0
+  decay: 0.35
+  settle_eps: 0.05
+  settle_patience: 3
+system: lightrag
+dataset: medical
+turns: 300
+agea:
+  query_method: hybrid
+  enable_graph_filter: true
+  llm_config: configs/agea/llm.yaml
